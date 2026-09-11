@@ -3,11 +3,16 @@ import { Download, FileSpreadsheet, FileText } from "lucide-react";
 import ReportFilter from "../components/Reportfilter";
 import ResultsTable from "../components/ResultsTable";
 import PriceHistoryResults from "../components/PriceHistoryResults";
+import VariacoesResults from "../components/VariacoesResults";
 import Pagination from "../components/Pagination";
 import PageHeader from "../components/ui/PageHeader";
 import { EmptyState, ErrorState, TableSkeleton } from "../components/ui/feedback";
 import { baixarBlob, exportReportData, fetchReportData } from "../services/api";
 import { useApiQuery, useRetry } from "../hooks/useApiQuery";
+
+const NOME_ARQUIVO = {
+  variation: "relatorio_variacoes",
+};
 
 const Relatorios = () => {
   const [filtros, setFiltros] = useState(null);
@@ -22,10 +27,21 @@ const Relatorios = () => {
     nonce,
   );
 
+  // Ordem e suspeitas são escolhidas em cima do resultado, e não no
+  // formulário — por isso sobrevivem a um "Gerar relatório" novo.
   const gerar = (novosFiltros) => {
-    setFiltros(novosFiltros);
+    setFiltros((anteriores) => ({
+      ordem: anteriores?.ordem ?? "variacao",
+      incluirSuspeitas: anteriores?.incluirSuspeitas ?? false,
+      ...novosFiltros,
+    }));
     setPagina(1);
     setErroExport(null);
+  };
+
+  const ajustar = (campo) => (valor) => {
+    setFiltros((atuais) => ({ ...atuais, [campo]: valor }));
+    setPagina(1);
   };
 
   const exportar = async (formato) => {
@@ -33,7 +49,8 @@ const Relatorios = () => {
     setErroExport(null);
     try {
       const blob = await exportReportData(filtros, formato);
-      baixarBlob(blob, formato === "excel" ? "relatorio.xlsx" : "relatorio.csv");
+      const nome = NOME_ARQUIVO[filtros.priceType] ?? "relatorio";
+      baixarBlob(blob, `${nome}.${formato === "excel" ? "xlsx" : "csv"}`);
     } catch (err) {
       setErroExport(`Não foi possível exportar: ${err.message}`);
     } finally {
@@ -45,6 +62,25 @@ const Relatorios = () => {
 
   const botaoExport =
     "inline-flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium transition-smooth hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50";
+
+  const resultados = () => {
+    if (filtros.priceType === "variation") {
+      return (
+        <VariacoesResults
+          results={linhas}
+          resumo={data.resumo}
+          ordem={filtros.ordem}
+          onOrdemChange={ajustar("ordem")}
+          incluirSuspeitas={filtros.incluirSuspeitas}
+          onIncluirSuspeitasChange={ajustar("incluirSuspeitas")}
+        />
+      );
+    }
+    if (filtros.priceType === "current") {
+      return <ResultsTable results={linhas} variante="catalogo" />;
+    }
+    return <PriceHistoryResults results={linhas} />;
+  };
 
   return (
     <>
@@ -99,7 +135,7 @@ const Relatorios = () => {
         <EmptyState
           icon={FileText}
           title="Configure o relatório"
-          description="Escolha as farmácias e o tipo de preço. Sem farmácia selecionada, o relatório cobre todas."
+          description="Escolha as farmácias e o tipo de relatório. Sem farmácia selecionada, o relatório cobre todas. Em “Aumentos e reduções”, cada mudança de preço aparece com a variação sobre o preço anterior."
         />
       )}
 
@@ -109,11 +145,7 @@ const Relatorios = () => {
 
       {data && (
         <>
-          {filtros.priceType === "current" ? (
-            <ResultsTable results={linhas} variante="catalogo" />
-          ) : (
-            <PriceHistoryResults results={linhas} />
-          )}
+          {resultados()}
           <Pagination
             currentPage={data.current_page ?? pagina}
             totalPages={data.last_page ?? 1}

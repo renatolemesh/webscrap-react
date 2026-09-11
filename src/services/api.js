@@ -83,8 +83,49 @@ export const fetchPriceHistory = (
    Relatorios
    ------------------------------------------------------------------------- */
 
+/**
+ * Filtros do relatório de aumentos e reduções, no formato do /precos/variacoes.
+ *
+ * O mesmo conjunto vai para a tela e para o export: é o que garante que o
+ * arquivo baixado traga exatamente as linhas que estavam na tela. Valor padrão
+ * não viaja — o servidor já assume "todos", "maior variação" e sem mínimo.
+ */
+const paramsVariacao = ({
+  startDate,
+  endDate,
+  selectedPharmacies = [],
+  tipo,
+  variacaoMinima,
+  ordem,
+  incluirSuspeitas,
+}) => ({
+  ...(startDate ? { "data-inicio": startDate } : {}),
+  ...(endDate ? { "data-fim": endDate } : {}),
+  ...(selectedPharmacies.length
+    ? { farmacia: selectedPharmacies.join(",") }
+    : {}),
+  ...(tipo && tipo !== "todos" ? { tipo } : {}),
+  ...(Number(variacaoMinima) > 0 ? { variacao_minima: variacaoMinima } : {}),
+  ...(ordem && ordem !== "variacao" ? { ordem } : {}),
+  // O servidor olha a presença do parâmetro, não o valor.
+  ...(incluirSuspeitas ? { incluir_suspeitas: 1 } : {}),
+});
+
+/**
+ * Aumentos e reduções no período, cada um com a variação sobre o preço
+ * anterior. Vem com `resumo` (contagens do período) além da página.
+ */
+export const fetchVariacoes = (filters, page = 1, signal) =>
+  getJson("precos/variacoes", {
+    params: { page, ...paramsVariacao(filters) },
+    signal,
+    ttl: 5 * MINUTO,
+  });
+
 export const fetchReportData = (filters, page = 1, signal) => {
   const { priceType, startDate, endDate, selectedPharmacies = [] } = filters;
+  if (priceType === "variation") return fetchVariacoes(filters, page, signal);
+
   const historico = priceType === "historical";
 
   return getJson(historico ? "precos/historico" : "precos", {
@@ -117,6 +158,14 @@ export const exportReportData = (filters, formato = "csv", signal) => {
     query,
     searchType,
   } = filters;
+
+  if (priceType === "variation") {
+    return getBlob(
+      "report/export",
+      { formato, priceType, ...paramsVariacao(filters) },
+      { signal },
+    );
+  }
 
   return getBlob(
     "report/export",
